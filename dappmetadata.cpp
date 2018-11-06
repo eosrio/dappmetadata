@@ -175,16 +175,14 @@ public:
 	[[eosio::action]]
 	void rmvalidator(capi_name owner) {
 		require_auth(owner);
-		auto itr = _validators.find(owner);
-		eosio_assert(itr != _validators.end(),"Account not found");
+		auto itr = _validators.get(owner,"Account not found");
 		_validators.erase(itr);
 	}
 
 	[[eosio::action]]
 	void update(name contract, capi_name action, uint64_t net, uint64_t cpu, uint64_t ram) {
 		require_auth(_self);
-		auto itr = _dapps.find(contract.value);
-		eosio_assert(itr != _dapps.end(),"contract not found");
+		auto itr = _dapps.get(contract.value,"contract not found");
 		_dapps.modify(itr, contract, [&](dapp& o) {
 			for (auto & a : o.actions) {
 				if(action == a.action_name) {
@@ -200,16 +198,15 @@ public:
 	void validate(capi_name validator, name contract, capi_checksum256 code_hash, string tag, string notes, int64_t id) {
 		require_auth(validator);
 		eosio_assert(is_account(contract.value),"Invalid account");
-		auto index = _dapps.find(contract.value);
-		eosio_assert(index != _dapps.end(),"contract not found");
+		auto index = _dapps.get(contract.value,"contract not found");
 
 		// use -1 to bypass
 		if(id >= 0) {
-			
+
 			requests_table _requests(_self,contract.value);
-			auto req = _requests.find(uint64_t(id));
-			eosio_assert(req != _requests.end(),"request not found");
-			auto ft = (req->expiration) + (req->accepted_on);
+			auto req = _requests.get(uint64_t(id),"request not found");
+
+			auto ft = (req.expiration) + (req.accepted_on);
 			eosio_assert( ft > current_time(), "request has expired");
 
 			// pay bounty to the validator
@@ -219,7 +216,7 @@ public:
 				permission_level{ _self, "active"_n },
 				name("eosio.token"),
 				name("transfer"),
-				make_tuple(_self.value, req->validator, req->bounty, memo)
+				make_tuple(_self.value, req.validator, req.bounty, memo)
 				).send();
 
 			_requests.erase(req);
@@ -256,8 +253,7 @@ public:
 		eosio_assert(is_account(validator),"Invalid account");
 		eosio_assert(is_account(contract.value),"Invalid account");
 		validations_table _validations(_self,contract.value);
-		auto itr = _validations.find(validator);
-		eosio_assert(itr != _validations.end(),"entry not found");
+		auto itr = _validations.get(validator,"validation not found");
 		_validations.erase(itr);
 	}
 
@@ -268,14 +264,13 @@ public:
 		require_auth(producer);
 
 		// check producer reg
-		auto prod = _producers.find(producer);
-		eosio_assert(prod != _producers.end(),"Producer not registered");
+		auto prod = _producers.get(producer,"Producer not registered");
 
-		auto itr = _validators.find(val_account);
-		eosio_assert(itr != _validators.end(),"validator not found");
+		auto itr = _validators.get(val_account,"validator not found");
 
-		auto vecit = find(itr->approved_by.begin(), itr->approved_by.end(), producer);
-		eosio_assert(vecit == itr->approved_by.end(),"already approved");
+		auto vecit = find(itr.approved_by.begin(), itr.approved_by.end(), producer);
+
+		eosio_assert(vecit == itr.approved_by.end(),"already approved");
 
 		_validators.modify(itr, _self, [&](validator& o) {
 			// include approval
@@ -292,14 +287,12 @@ public:
 		require_auth(producer);
 
 		// check producer reg
-		auto prod = _producers.find(producer);
-		eosio_assert(prod != _producers.end(),"Producer not registered");
+		auto prod = _producers.get(producer,"Producer not registered");
 
-		auto itr = _validators.find(val_account);
-		eosio_assert(itr != _validators.end(),"validator not found");
+		auto itr = _validators.get(val_account,"validator not found");
 
-		auto vecit = find(itr->approved_by.begin(), itr->approved_by.end(), producer);
-		eosio_assert(vecit != itr->approved_by.end(),"did not approve yet");
+		auto vecit = find(itr.approved_by.begin(), itr.approved_by.end(), producer);
+		eosio_assert(vecit != itr.approved_by.end(),"did not approve yet");
 
 		_validators.modify(itr, _self, [&](validator& o) {
 			// remove approval entry
@@ -316,9 +309,8 @@ public:
 
 		// check receipt balance
 		receipts_table _receipts(_self,_self.value);
-		auto p = _receipts.find(payer);
-		eosio_assert(p != _receipts.end(),"payer not found, please make a deposit first");
-		eosio_assert(p->amount >= bounty,"not enough credits");
+		auto p = _receipts.get(payer,"payer not found");
+		eosio_assert(p.amount >= bounty,"not enough credits");
 
 		_receipts.modify(p, _self, [&](receipt& o) {
 			o.amount -= bounty;
@@ -342,17 +334,16 @@ public:
 		require_auth(payer);
 		requests_table _requests(_self,contract);
 		receipts_table _receipts(_self,_self.value);
-		auto req = _requests.find(id);
-		eosio_assert(req != _requests.end(),"request not found");
-		if (req->accepted == true) {
-			auto ft = (req->expiration) + (req->accepted_on);
+		auto req = _requests.get(id,"request not found");
+		if (req.accepted == true) {
+			auto ft = (req.expiration) + (req.accepted_on);
 			eosio_assert( ft < current_time(), "request is still active");
 		}
 		
 		// refund payer
-		auto p = _receipts.find(req->payer);
+		auto p = _receipts.find(req.payer);
 		_receipts.modify(p, _self, [&](receipt& o) {
-			o.amount += req->bounty;
+			o.amount += req.bounty;
 		});
 
 		// delete request
@@ -362,11 +353,10 @@ public:
 	[[eosio::action]]
 	void refund(capi_name payer, asset quantity) {
 		receipts_table _receipts(_self,_self.value);
-		auto p = _receipts.find(payer);
-		eosio_assert(p != _receipts.end(), "balance not found");
-		eosio_assert(p->amount >= quantity, "not enough balance");
+		auto p = _receipts.get(payer, "balance not found");
+		eosio_assert(p.amount >= quantity, "not enough balance");
 
-		if(p->amount == quantity) {
+		if(p.amount == quantity) {
 			_receipts.erase(p);
 		} else {
 			_receipts.modify(p, _self, [&](receipt& o) {
@@ -387,16 +377,14 @@ public:
 	[[eosio::action]]
 	void acceptreq(capi_name val_account, capi_name contract, uint64_t id) {
 		require_auth(val_account);
-		auto itr = _validators.find(val_account);
-		eosio_assert(itr != _validators.end(),"validator not found");
+		auto itr = _validators.get(val_account,"validator not found");
 
 		requests_table _requests(_self,contract);
-		auto req = _requests.find(id);
-		eosio_assert(req != _requests.end(),"request not found");
+		auto req = _requests.get(id,"request not found");
 		
 		// check validator, if assigned
-		if(req->validator != ""_n.value) {
-			eosio_assert(req->validator == val_account, "validator do not match");
+		if(req.validator != ""_n.value) {
+			eosio_assert(req.validator == val_account, "validator do not match");
 		}
 		
 		// update votes
@@ -404,7 +392,7 @@ public:
 			o.weight = sum_votes(o.approved_by);
 		});
 		// check minimum reputation
-		eosio_assert(itr->weight >= req->min_rep,"not enough reputation to accept");
+		eosio_assert(itr.weight >= req.min_rep,"not enough reputation to accept");
 
 		_requests.modify(req, name(val_account), [&](request& o){
 			o.accepted = true;
@@ -415,21 +403,25 @@ public:
 
 	[[eosio::action]]
 	void insert( insertdapp data ) {
+
 		require_auth( data.account );
-		eosio_assert(is_account(data.account),"Invalid account");
+
 		// Check string sizes
 		eosio_assert(data.title.length() <= 32, "Title too long");
 		eosio_assert(data.description.length() <= 1024, "Description too long");
 		eosio_assert(data.source_code.length() <= 128, "Source code url too long");
 		eosio_assert(data.website.length() <= 128, "Website url too long");
 		eosio_assert(data.logo.length() <= 128, "Logo url too long");
+		
 		// Check tags
 		eosio_assert(data.tags.size() <= 10, "Cannot add more than 10 tags");
 		for (auto & tag : data.tags) {
 			eosio_assert(tag.length() <= 16, "Tag must have less than 16 chars");
 		}
+		
 		// Check actions
 		vector<string> ram_payer_opts = {"user","contract","both"};
+		
 		for (auto & action : data.actions) {
 			// Check ram payer types
 			eosio_assert(any_of(ram_payer_opts.begin(), ram_payer_opts.end(), [&](const string & str){
@@ -530,18 +522,19 @@ extern "C" {
 		if(code == receiver) {
 			switch(action) {
 				EOSIO_DISPATCH_HELPER(metadata,
+					(acceptreq)
+					(addrequest)
+					(approve)
+					(cancelreq)
+					(insert)
+					(refund)
 					(regvalidator)
 					(rmvalidator)
-					(addrequest)
-					(cancelreq)
-					(acceptreq)
-					(refund)
+					(rmvalidation)
+					(unapprove)
 					(update)
 					(validate)
-					(rmvalidation)
-					(approve)
-					(unapprove)
-					(insert))
+					)
 			};
 		}
 		eosio_exit(0);
